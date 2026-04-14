@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unapicker"
+version = "0.1.0"
+description = "FUSE-based file picker integration for TUI applications"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{name = "Evan Widloski"}]
+license = {text = "MIT"}
+keywords = ["fuse", "filepicker", "tui"]
+
+dependencies = [
+    "fusepy>=1.0.0",
+]
+
+[project.scripts]
+unapicker = "unapicker.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages]
+find = {}
