@@ -14,14 +14,6 @@ unapicker install_service
 
 Read from `/tmp/picker` in your application to open a graphical file picker:
 
-```python
-with open("/tmp/picker", "r") as f:
-    selected_file = f.read().strip()
-```
-
-```bash
-selected_file=$(cat /tmp/picker)
-```
 
 
 ## Requirements

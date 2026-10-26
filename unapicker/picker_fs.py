@@ -5,8 +5,9 @@ import logging
 import os
 import stat
 import subprocess
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fuse import FUSE, FuseOSError, Operations
 
@@ -16,15 +17,18 @@ logger = logging.getLogger(__name__)
 class PickerFS(Operations):
     """FUSE filesystem that triggers file picker on read."""
 
-    def __init__(self, pickers: List[str]):
+    def __init__(self, pickers: List[str], cache_timeout: int = 5):
         """
         Initialize picker filesystem.
 
         Args:
             pickers: List of picker commands to try in order (with fallbacks)
+            cache_timeout: Cache result for N seconds (0 to disable)
         """
         self.pickers = pickers
         self.pending_result: Optional[bytes] = None
+        self.cache_timeout = cache_timeout
+        self.cache: Optional[Tuple[bytes, float]] = None  # (content, timestamp)
 
     def _trigger_picker(self) -> Optional[bytes]:
         """
@@ -68,10 +72,25 @@ class PickerFS(Operations):
         return None
 
     def open(self, path, flags):
-        """Handle file open - trigger picker."""
+        """Handle file open - trigger picker or return cached result."""
         if path == "/picker":
+            # Check cache first
+            if self.cache_timeout > 0 and self.cache:
+                contents, timestamp = self.cache
+                if time.time() - timestamp < self.cache_timeout:
+                    logger.info("Using cached picker result")
+                    self.pending_result = contents
+                    return 0
+
+            # Run picker
             contents = self._trigger_picker()
             self.pending_result = contents if contents else b""
+
+            # Cache the result
+            if self.cache_timeout > 0 and contents:
+                self.cache = (contents, time.time())
+                logger.info(f"Cached result for {self.cache_timeout}s")
+
             return 0
         raise FuseOSError(errno.ENOENT)
 
@@ -92,12 +111,13 @@ class PickerFS(Operations):
                 "st_size": 4096,
             }
         elif path == "/picker":
+            size = len(self.pending_result) if self.pending_result else 0
             return {
                 "st_mode": stat.S_IFREG | 0o644,
                 "st_nlink": 1,
                 "st_uid": os.getuid(),
                 "st_gid": os.getgid(),
-                "st_size": 4096 if self.pending_result else 0,
+                "st_size": size,
             }
         raise FuseOSError(errno.ENOENT)
 
@@ -121,7 +141,7 @@ class PickerFS(Operations):
         }
 
 
-def mount_picker_fs(mount_point: str, pickers: List[str], foreground: bool = False):
+def mount_picker_fs(mount_point: str, pickers: List[str], foreground: bool = False, cache_timeout: int = 5):
     """
     Mount the picker filesystem.
 
@@ -129,6 +149,7 @@ def mount_picker_fs(mount_point: str, pickers: List[str], foreground: bool = Fal
         mount_point: Path where to create symlink to the picker file
         pickers: List of picker commands to try
         foreground: If True, run in foreground (for debugging)
+        cache_timeout: Cache picker result for N seconds (0 to disable)
     """
     # Mount FUSE at a hidden location
     fuse_mount_path = Path("/tmp/.picker-fuse")
@@ -150,8 +171,8 @@ def mount_picker_fs(mount_point: str, pickers: List[str], foreground: bool = Fal
         symlink_path.unlink()
     symlink_path.parent.mkdir(parents=True, exist_ok=True)
 
-    fs = PickerFS(pickers)
-    logger.info(f"Mounting FUSE filesystem at {fuse_mount_path}")
+    fs = PickerFS(pickers, cache_timeout=cache_timeout)
+    logger.info(f"Mounting FUSE filesystem at {fuse_mount_path} (cache: {cache_timeout}s)")
 
     # Create symlink BEFORE mounting
     symlink_path.symlink_to(str(fuse_mount_path / "picker"))

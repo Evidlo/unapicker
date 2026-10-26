@@ -34,6 +34,7 @@ def cmd_daemon(args):
         args.mount_point,
         pickers,
         foreground=args.foreground,
+        cache_timeout=args.cache,
     )
 
 
@@ -84,6 +85,8 @@ ExecStart={exec_start}
 ExecStop=/bin/sh -c 'fusermount -u /tmp/.picker-fuse 2>/dev/null || true'
 Restart=on-failure
 RestartSec=5
+RestartSteps=10
+RestartMaxDelaySec=1h
 
 [Install]
 WantedBy=default.target
@@ -140,6 +143,12 @@ def main():
         "--foreground",
         action="store_true",
         help="Run in foreground (for debugging)",
+    )
+    daemon_parser.add_argument(
+        "--cache",
+        type=int,
+        default=5,
+        help="Cache picker result for N seconds (default: 5)",
     )
     daemon_parser.set_defaults(func=cmd_daemon)
 
